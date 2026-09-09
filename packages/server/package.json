@@ -1,0 +1,31 @@
+{
+  "name": "@crm-chat/server",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --env-file-if-exists=../../.env --watch --import tsx src/main.ts",
+    "start": "node --env-file-if-exists=../../.env --import tsx src/main.ts",
+    "simulate:inbound": "node --env-file-if-exists=../../.env --import tsx scripts/simulate-inbound.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@crm-chat/domain": "workspace:*",
+    "@effect/platform-node": "catalog:",
+    "@effect/sql-pg": "catalog:",
+    "@effect/sql-pglite": "catalog:",
+    "@electric-sql/pglite": "catalog:",
+    "@kikos/whatsapp": "workspace:*",
+    "drizzle-orm": "catalog:",
+    "effect": "catalog:",
+    "tsx": "catalog:"
+  },
+  "devDependencies": {
+    "@effect/vitest": "catalog:",
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

@@ -1,0 +1,62 @@
+import { cn } from "./cn";
+
+export const Group = ({ className, ...props }: React.ComponentProps<"div">) => (
+  <div data-slot="message-group" className={cn("flex min-w-0 flex-col gap-2", className)} {...props} />
+);
+
+export const Root = ({
+  className,
+  align = "start",
+  ...props
+}: React.ComponentProps<"div"> & { align?: "start" | "end" }) => (
+  <div
+    data-slot="message"
+    data-align={align}
+    className={cn(
+      "group/message relative flex w-full min-w-0 gap-2 text-sm data-[align=end]:flex-row-reverse",
+      className,
+    )}
+    {...props}
+  />
+);
+
+export const Avatar = ({ className, ...props }: React.ComponentProps<"div">) => (
+  <div
+    data-slot="message-avatar"
+    className={cn(
+      "flex w-fit min-w-8 shrink-0 items-center justify-center self-end overflow-hidden rounded-full bg-neutral-800 group-has-data-[slot=message-footer]/message:-translate-y-8",
+      className,
+    )}
+    {...props}
+  />
+);
+
+export const Content = ({ className, ...props }: React.ComponentProps<"div">) => (
+  <div
+    data-slot="message-content"
+    className={cn(
+      "flex w-full min-w-0 flex-col gap-2.5 wrap-break-word group-data-[align=end]/message:*:data-slot:self-end",
+      className,
+    )}
+    {...props}
+  />
+);
+
+export const Header = ({ className, ...props }: React.ComponentProps<"div">) => (
+  <div
+    data-slot="message-header"
+    className={cn("flex max-w-full min-w-0 items-center px-3 text-xs font-medium text-neutral-400", className)}
+    {...props}
+  />
+);
+
+export const Footer = ({ className, ...props }: React.ComponentProps<"div">) => (
+  <div
+    data-slot="message-footer"
+    className={cn(
+      "flex max-w-full min-w-0 items-center px-3 text-xs font-medium text-neutral-400 group-data-[align=end]/message:justify-end",
+      className,
+    )}
+    {...props}
+  />
+);

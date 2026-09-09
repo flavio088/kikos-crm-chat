@@ -1,7 +1,0 @@
-{
-  "extends": "@kikos/tsconfig/tsconfig.base.json",
-  "compilerOptions": {
-    "types": ["vitest/importMeta", "node"]
-  },
-  "include": ["src", "test"]
-}

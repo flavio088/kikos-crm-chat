@@ -1,0 +1,20 @@
+{
+  "name": "kikos-crm-chat",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "pnpm -r --parallel --filter @crm-chat/server --filter @crm-chat/web run dev",
+    "typecheck": "pnpm -r run typecheck",
+    "test": "pnpm -r run test",
+    "simulate:inbound": "pnpm --filter @crm-chat/server run simulate:inbound"
+  },
+  "devDependencies": {
+    "typescript": "catalog:"
+  },
+  "engines": {
+    "node": ">=22",
+    "pnpm": ">=10"
+  },
+  "packageManager": "pnpm@11.20.0"
+}

@@ -1,0 +1,24 @@
+@layer reset, theme, base, utilities;
+
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/preflight.css" layer(base);
+@import "tailwindcss/utilities.css" layer(utilities);
+
+@import "./theme/shadcn.css";
+
+html,
+body,
+#root {
+  min-height: 100%;
+  background-color: var(--color-neutral-900);
+  color: var(--color-white);
+}
+
+button {
+  cursor: pointer;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+}
