@@ -25,14 +25,8 @@ export const conversationAtom = Atom.family((contactId: CrmContactId.Id) =>
   ),
 );
 
-/** The message being written for one contact — state the send flow reads and clears. */
 export const conversationDraftAtom = Atom.family((_: CrmContactId.Id) => Atom.make(""));
 
-/**
- * The two ways a send is refused, said the way the composer needs them said.
- * The window closing is not a failure to retry — it asks for a template
- * instead, which is a different move.
- */
 const CONVERSATION_CONFLICTS: Record<Conflict.Conversation, string> = {
   conversation_window_closed:
     "A janela de 24 horas fechou. Só um template aprovado pode ser enviado agora.",
@@ -65,11 +59,7 @@ export const sendConversationTextAtom = ApiRuntime.fn(
   ),
   { reactivityKeys: conversationMutationKeys },
 );
-/**
- * The approved templates, read once and kept — Meta's list changes when
- * somebody submits a new one for approval, which is a thing that happens in a
- * console and takes hours, not something a screen races.
- */
+
 export const conversationTemplatesAtom = ApiRuntime.atom(
   Effect.gen(function* () {
     const client = yield* CrmApiClient;

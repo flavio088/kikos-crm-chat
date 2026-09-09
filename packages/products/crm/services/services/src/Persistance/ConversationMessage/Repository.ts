@@ -14,14 +14,9 @@ export interface IConversationMessageRepository {
   readonly save: (
     message: Conversation.Message.Any,
   ) => Effect.Effect<Conversation.Message.Any, ConversationMessageRepositoryError>;
-  /** A thread, oldest first — the order a conversation reads in. */
   readonly forConversation: (
     conversationId: CrmConversationId.Id,
   ) => Effect.Effect<Conversation.Message.Any[], ConversationMessageRepositoryError>;
-  /**
-   * By the id Meta assigned, which is how a delivery receipt finds the message
-   * it belongs to — it arrives hours later carrying nothing else.
-   */
   readonly findByExternalId: (
     externalId: string,
   ) => Effect.Effect<Option.Option<Conversation.Message.Any>, ConversationMessageRepositoryError>;
@@ -38,7 +33,6 @@ const failed = Effect.mapError(
 
 const decodeMessage = Schema.decodeUnknownEffect(Schema.toCodecJson(Conversation.Message.Any));
 
-/** As in the ticket entries table: `kind` stores, `_tag` decodes, `satisfies` ties them. */
 const tagOf = {
   text: "CrmConversationMessage.Text",
   media: "CrmConversationMessage.Media",
@@ -75,11 +69,6 @@ const toRow = (
         mediaType: message.mediaType,
         sizeBytes: message.sizeBytes,
       };
-    /**
-     * The name and its filled blanks go in `body` as json. A column apiece
-     * would be two more nulls on every text row for a case that is the rarest
-     * of the three.
-     */
     case "template":
       return {
         ...base,

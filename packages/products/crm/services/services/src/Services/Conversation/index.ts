@@ -27,14 +27,6 @@ export type CrmConversationFailure =
   | CrmForbiddenError
   | CrmNotFoundError;
 
-/**
- * A thread with everything the screen draws it from: the person, the messages,
- * and whether a free-form reply may be sent at all.
- *
- * `windowOpen` is computed rather than left to the caller because the rule is
- * Meta's and not the screen's — a second reading of the same twenty-four hours
- * is a second place for it to drift.
- */
 export type ConversationDetail = {
   readonly conversation: Conversation.Conversation;
   readonly contact: Contact.Contact;
@@ -43,33 +35,19 @@ export type ConversationDetail = {
 };
 
 export interface ICrmConversationService {
-  /** The thread of one contact, opened if the person has never been written to. */
   readonly detail: (
     actor: CrmActor,
     contactId: CrmContactId.Id,
   ) => Effect.Effect<ConversationDetail, CrmConversationFailure>;
-  /**
-   * Sends free text, and refuses once the window has closed — the same refusal
-   * Meta would answer with, made here so the message is never spent finding out.
-   */
   readonly sendText: (
     actor: CrmActor,
     contactId: CrmContactId.Id,
     body: string,
   ) => Effect.Effect<ConversationDetail, CrmConversationFailure>;
-  /**
-   * Records what arrived. Not an actor's call — the webhook has no user behind
-   * it, and the number decides whose thread this is.
-   */
   readonly receive: (
     message: WhatsApp.Model.Inbound,
   ) => Effect.Effect<void, CrmConversationFailure>;
-  /**
-   * The approved templates, which are the only thing sendable once the window
-   * has closed. Not scoped to a contact: they belong to the account, and the
-   * group's `Authorization` is what says whether the caller may see them.
-   */
-  readonly templates: Effect.Effect<
+  readonly approvedTemplates: Effect.Effect<
     ReadonlyArray<{ readonly name: string; readonly language: string }>,
     CrmConversationFailure
   >;
@@ -83,11 +61,8 @@ const failed = Effect.mapError(
   (e: { readonly message: string }) => new CrmConversationError({ message: e.message }),
 );
 
-/**
- * A contact is reachable exactly as far as its work is — the reading
- * `Policy.ReachableContact` already carries, folded from the placements of
- * every opportunity the person holds.
- */
+const BRAZIL_COUNTRY_CODE = "55";
+
 const requireCan = (
   ability: Policy.CrmAbility,
   action: Policy.ContactAction,
@@ -103,7 +78,6 @@ export const make = Effect.gen(function* () {
   const messages = yield* ConversationMessagePersistence.Repository;
   const opportunities = yield* OpportunityPersistence.Repository;
   const gateway = yield* WhatsApp.WhatsAppGateway;
-  // oxlint-disable-next-line no-unused-vars
   const media = yield* ConversationMediaPersistence.Repository;
 
   const requireContact = Effect.fn("requireContact")(function* (id: CrmContactId.Id) {
@@ -116,12 +90,6 @@ export const make = Effect.gen(function* () {
     return found.value;
   });
 
-  /**
-   * The person as the ability sees them: every store holding one of their
-   * opportunities, and every seller assigned to one. Both are read whole
-   * rather than scoped, so the answer is about the person and not about the
-   * slice this caller happens to reach.
-   */
   const reachable = Effect.fn("reachable")(function* (contact: Contact.Contact) {
     const held = yield* opportunities.forContact(contact.id).pipe(failed);
     return Policy.reachableContact({
@@ -135,12 +103,6 @@ export const make = Effect.gen(function* () {
     });
   });
 
-  /**
-   * The thread, opened on first use. A contact who was never written to has no
-   * row, and creating one on read is what keeps the screen from needing a
-   * separate "start conversation" step for something that starts by being
-   * looked at.
-   */
   const threadOf = Effect.fn("threadOf")(function* (contactId: CrmContactId.Id) {
     const found = yield* conversations.forContact(contactId).pipe(failed);
     if (Option.isSome(found)) return found.value;
@@ -170,14 +132,6 @@ export const make = Effect.gen(function* () {
     },
   );
 
-  /**
-   * Free text out, and the window checked first.
-   *
-   * Meta refuses this once twenty-four hours have passed since the customer's
-   * last message, and refusing here rather than there is what keeps a message
-   * from being spent to find out. The screen reads the same flag and disables
-   * the box — this is the guard, that is the courtesy.
-   */
   const sendText: ICrmConversationService["sendText"] = Effect.fn("sendText")(
     function* (actor, contactId, body) {
       const contact = yield* requireContact(contactId);
@@ -193,11 +147,6 @@ export const make = Effect.gen(function* () {
           }),
         );
       }
-      /**
-       * The phone as the api addresses one, rebuilt from what the crm stores:
-       * `Phone.normalize` strips the country code on the way in, so it goes back
-       * on here. A contact with no phone key never had a reachable number.
-       */
       if (contact.phone === undefined) {
         return yield* Effect.fail(
           new CrmConversationError({ message: "Este contato não tem telefone." }),
@@ -209,8 +158,9 @@ export const make = Effect.gen(function* () {
           new CrmConversationError({ message: "O telefone deste contato não é um número válido." }),
         );
       }
+      const phoneWithCountryCode = `${BRAZIL_COUNTRY_CODE}${identity.phone}`;
       const to = yield* Schema.decodeUnknownEffect(WhatsApp.Model.WhatsAppPhone)(
-        `55${identity.phone}`,
+        phoneWithCountryCode,
       ).pipe(failed);
 
       const externalId = yield* gateway
@@ -238,14 +188,6 @@ export const make = Effect.gen(function* () {
     },
   );
 
-  /**
-   * What arrived, filed under whoever the number belongs to.
-   *
-   * A number that resolves to nobody is not made into a contact. The crm
-   * settles identity through `phone_key` with a partial unique index and a
-   * conflict flag — a design built to not write the same person down twice —
-   * and a row for every wrong number would be the opposite of that.
-   */
   const receive: ICrmConversationService["receive"] = Effect.fn("receive")(function* (message) {
     const identity = Contact.Identity.identityOf({ phone: message.from });
     if (identity.phone === undefined) return;
@@ -275,11 +217,6 @@ export const make = Effect.gen(function* () {
         .save(new Conversation.Message.Text({ ...base, kind: "text", body: message.text.body }))
         .pipe(failed);
     } else {
-      /**
-       * Media arrives as a handle, and the bytes are a second request against
-       * a url that expires — so they are fetched now rather than lazily. The
-       * row is written first because the content table points at it.
-       */
       const data = yield* gateway.download(message.media.id).pipe(failed);
       const decoded = yield* Schema.decodeUnknownEffect(PrimitiveFile.File)({
         mediaType: message.media.mimeType,
@@ -301,15 +238,14 @@ export const make = Effect.gen(function* () {
       yield* media.save(id, data).pipe(failed);
     }
 
-    /** The receipt that opens the window. Only a message from them does it. */
     yield* conversations
       .save(new Conversation.Conversation({ ...conversation, lastInboundAt: at, updatedAt: at }))
       .pipe(failed);
   });
 
-  const templates = gateway.templates.pipe(failed);
+  const approvedTemplates = gateway.approvedTemplates.pipe(failed);
 
-  return CrmConversationService.of({ detail, sendText, receive, templates });
+  return CrmConversationService.of({ detail, sendText, receive, approvedTemplates });
 });
 
 export const layer = Layer.effect(CrmConversationService)(make);

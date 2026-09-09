@@ -2,21 +2,6 @@ import { CrmOpportunityFileId, CrmOpportunityId, UserId } from "@kikos/effect-id
 import { File as PrimitiveFile, Timestampable } from "@kikos/primitives";
 import { Effect, Schema } from "effect";
 
-/**
- * A file attached to an opportunity's history.
- *
- * Kept apart from `Note.OnOpportunity`: a note answers to either an
- * opportunity or a quotation and always carries a body, while a file answers
- * only to an opportunity and carries none. Sharing `crm_notes` would mean
- * loosening its `one_owner` check and making `body` optional for a case that
- * has nothing to do with quotations.
- *
- * `mediaType` is the shared primitive rather than a list of its own — the set
- * of accepted formats is one decision, made once, and Tickets already reads it
- * from there. `mediaType` and `sizeBytes` are both read off the content that
- * arrived, never taken from the caller: a client that could declare them could
- * declare them wrong.
- */
 export class OpportunityFile extends Schema.Class<OpportunityFile, { readonly _: unique symbol }>(
   "CrmOpportunityFile",
 )({

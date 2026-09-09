@@ -133,11 +133,6 @@ export const addOpportunityNoteAtom = ApiRuntime.fn(
   { reactivityKeys: opportunityMutationKeys },
 );
 
-/**
- * The bytes of one attachment, for the inline preview. A family per
- * opportunity and file, because the same TTL that keeps a timeline warm should
- * not keep every image it ever showed in memory.
- */
 const opportunityFileContentAtoms = Atom.family((opportunityId: CrmOpportunityId.Id) =>
   Atom.family((fileId: CrmOpportunityFileId.Id) =>
     ApiRuntime.atom(
@@ -190,8 +185,8 @@ export const downloadOpportunityFileAtom = ApiRuntime.fn(
         params: { id: input.opportunityId, fileId: input.fileId },
       });
       yield* Effect.sync(() => {
-        // oxlint-disable-next-line kikos/no-unexplained-as-cast
-        const url = URL.createObjectURL(new Blob([content as BlobPart], { type: input.mediaType }));
+        const fileBytes = content as BlobPart;
+        const url = URL.createObjectURL(new Blob([fileBytes], { type: input.mediaType }));
         const anchor = document.createElement("a");
         anchor.href = url;
         anchor.download = input.filename;
@@ -234,12 +229,6 @@ const PLACING_MISSING: Record<Missing.Placing, string> = {
     "Esta pessoa não trabalha nesta loja. Escolha alguém do rodízio dela, ou deixe a loja receber sem dono.",
 };
 
-/**
- * The refusals of the two routing calls. The 403 is the interesting one: a
- * vendedor may read the opportunity in front of them and may not hand it to
- * somebody else, so the sentence has to name who can, not repeat that they
- * cannot.
- */
 const routingFailure =
   (fallback: string) =>
   (error: Option.Option<unknown>): string => {
@@ -253,11 +242,6 @@ const routingFailure =
     return fallback;
   };
 
-/**
- * Runs the engine again, with the store currently holding the opportunity
- * excluded — otherwise the rodizio hands it straight back, since the cursor
- * moved on when it was placed.
- */
 export const distributeOpportunityAtom = ApiRuntime.fn(
   Effect.fnUntraced(
     function* (id: CrmOpportunityId.Id) {
@@ -277,10 +261,6 @@ export const distributeOpportunityAtom = ApiRuntime.fn(
   { reactivityKeys: opportunityMutationKeys },
 );
 
-/**
- * The human override. `userId` is optional because a store may hold work with
- * nobody on it — the same shape a placement has when the rodizio is empty.
- */
 export const placeOpportunityAtom = ApiRuntime.fn(
   Effect.fnUntraced(
     function* ({

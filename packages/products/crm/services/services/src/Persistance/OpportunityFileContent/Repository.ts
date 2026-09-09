@@ -18,7 +18,6 @@ export interface IOpportunityFileContentRepository {
   readonly findByFileId: (
     fileId: CrmOpportunityFileId.Id,
   ) => Effect.Effect<Option.Option<Uint8Array>, OpportunityFileContentRepositoryError>;
-  /** Removing an absent key is a no-op, matching what a re-save would overwrite. */
   readonly remove: (                                 
     fileId: CrmOpportunityFileId.Id,
   ) => Effect.Effect <void, OpportunityFileContentRepositoryError>;
@@ -73,15 +72,8 @@ export const makeSql = Effect.gen(function* () {
 
 export const layerSql = Layer.effect(Repository)(makeSql);
 
-/**
- * Where an opportunity file's bytes live in the bucket. Prefixed because the
- * bucket is not promised to hold only crm attachments, and keyed by file id
- * alone because that is the whole of what this port is addressed by — the same
- * handle the postgres table uses for its primary key.
- */
 const keyOf = (fileId: CrmOpportunityFileId.Id) => `crm-opportunity-files/${fileId}`;
 
-/** The shared store behind this port's ids and error — the adaptation is the whole layer. */
 const fromStore = (store: FileContent.IFileContentStore): IOpportunityFileContentRepository => ({
   save: (fileId, data) => store.save(keyOf(fileId), data).pipe(failed),
   findByFileId: (fileId) => store.find(keyOf(fileId)).pipe(failed),

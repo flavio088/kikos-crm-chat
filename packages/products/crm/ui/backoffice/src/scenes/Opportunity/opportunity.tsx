@@ -22,17 +22,11 @@ export type OpportunityProps = {
   onOpenQuotation: (quotationId: CrmQuotationId.Id) => void;
 };
 
-/** Split out because the suspense boundary has to sit above the hook. */
 const ConversationPanel = ({ contactId }: { contactId: CrmContactId.Id }) => {
   const { result } = useConversation(contactId);
   return <ContactConversation contactId={contactId} detail={result.value.data} />;
 };
 
-/**
- * The two panels the right column can show, and they are tabs rather than a
- * stack: a conversation runs to dozens of messages, and below the history it
- * would push the page past where anybody scrolls.
- */
 const HistoryPanel = ({
   opportunityId,
   contactId,
@@ -103,12 +97,6 @@ const Placement = ({ placement }: { placement: OpportunityRecord.Placement.Any |
     <div className="flex flex-col gap-3">
       <Entry label="Destino" value={<DestinationName id={placement.destinationId} />} />
       <Entry label="Colocado em" value={formatDateTime(placement.placedAt)} />
-      {/*
-       * `dueAt` is stamped on every placement and nothing reads it — confiscation
-       * by deadline was left out of this delivery. Drawing it as "prazo" would
-       * promise the store a consequence that never arrives, so the placement
-       * shows what happened and not what is supposed to happen next.
-       */}
       {placement.kind === "assigned" ? null : (
         <Entry label="Motivo da retomada" value={reclaimReason(placement.reason)} />
       )}

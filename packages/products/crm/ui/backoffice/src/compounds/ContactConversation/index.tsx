@@ -12,11 +12,6 @@ const formatFileSize = (sizeBytes: number) => {
   return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`;
 };
 
-/**
- * One message, and which side it sits on is the only thing the direction
- * decides here — an inbound message is the customer's and carries no author,
- * an outbound one is ours.
- */
 const Bubble = ({ message }: { message: Conversation.Message.Any }) => {
   const mine = message.direction === "outbound";
   return (
@@ -57,21 +52,6 @@ const Bubble = ({ message }: { message: Conversation.Message.Any }) => {
   );
 };
 
-/**
- * The composer, and the window decides what it offers.
- *
- * Meta refuses free text once twenty-four hours have passed since the
- * customer's last message. Disabling the box is the courtesy of saying so
- * before somebody types — the service refuses either way.
- */
-
-/**
- * What the composer offers once the window has closed.
- *
- * A template is not a message somebody writes — the body was approved by Meta
- * and the sender only picks which one. Listing them here is what turns "you
- * cannot send" into a next move.
- */
 const TemplatePicker = () => {
   const { result } = useConversationTemplates();
   const templates = result.value.data;

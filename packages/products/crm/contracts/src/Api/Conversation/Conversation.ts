@@ -8,13 +8,6 @@ import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "effect/unstable/ht
 import { CrmConflictError, CrmNotFoundError } from "../Errors";
 import { CrmScoped } from "../Middleware";
 
-/**
- * The thread and what the composer needs to decide what to offer.
- *
- * `windowOpen` travels rather than being derived on the screen: the rule is
- * Meta's twenty-four hours from the customer's last message, and a second
- * reading of it is a second place for it to drift.
- */
 export const ConversationDetail = Schema.Struct({
   conversation: Conversation.Conversation,
   contact: Contact.Contact,
@@ -59,12 +52,6 @@ export const ConversationApiGroup = HttpApiGroup.make("crmConversations")
   .middleware(Authorization)
   .prefix("/crm/contacts");
 
-/**
- * The approved templates, as the composer needs them: a name to send and a
- * language to send it in. What Meta returns alongside — the body, the
- * category, the rejection reason on the ones that failed — is not read here,
- * and the query already filters to approved.
- */
 export const ConversationTemplate = Schema.Struct({
   name: Schema.String,
   language: Schema.String,
@@ -74,11 +61,6 @@ export const ListConversationTemplates = {
   ...Contracts.response(Schema.Array(ConversationTemplate), [ApplicationError, ForbiddenError]),
 };
 
-/**
- * Its own group because templates belong to the account and not to a contact.
- * Hanging them off `/crm/contacts/:id` would name a person the answer does not
- * depend on.
- */
 export const ConversationTemplateApiGroup = HttpApiGroup.make("crmConversationTemplates")
   .add(
     HttpApiEndpoint.get("list", "/templates", {
@@ -92,18 +74,6 @@ export const ConversationTemplateApiGroup = HttpApiGroup.make("crmConversationTe
 
 const UnauthorizedError = HttpApiSchema.status(401)(Errors.UnauthorizedError);
 
-/**
- * Meta's side, and it carries no bearer token — which is why it is its own
- * group, outside `Authorization`.
- *
- * Two shapes. The GET is the handshake: Meta calls once with a token it was
- * given in the console and expects the challenge echoed back as plain text.
- * The POST is every notification after that, signed with an HMAC of the body
- * in `X-Hub-Signature-256` — stronger than the query-string token the rd
- * station intake uses, because it also proves the body was not altered, and
- * because a query string is the one part of a request that reliably ends up
- * in access logs.
- */
 export const VerifyWhatsAppWebhookQuery = Schema.Struct({
   "hub.mode": Schema.String,
   "hub.verify_token": Schema.String,
@@ -116,14 +86,10 @@ export const VerifyWhatsAppWebhook = {
   error: [ApplicationError, UnauthorizedError] as const,
 };
 
+const rawBodyForSignatureCheck = Schema.String.pipe(HttpApiSchema.asText());
+
 export const ReceiveWhatsAppWebhook = {
-  /**
-   * Not parsed here, and that is the point: the signature is an hmac over the
-   * exact bytes Meta sent, so the handler reads the raw body itself. Letting
-   * the contract decode first would consume the stream and leave nothing to
-   * verify against.
-   */
-  payload: Schema.String.pipe(HttpApiSchema.asText()),
+  payload: rawBodyForSignatureCheck,
   ...Contracts.response(Schema.Void, [ApplicationError, UnauthorizedError]),
 };
 

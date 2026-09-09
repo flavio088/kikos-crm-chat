@@ -8,7 +8,6 @@ export const useConversation = (contactId: CrmContactId.Id) => {
   return { result };
 };
 
-/** The message draft for one contact. The send flow reads and clears it. */
 export const useConversationDraft = (contactId: CrmContactId.Id) =>
   useAtom(conversationDraftAtom(contactId));
 

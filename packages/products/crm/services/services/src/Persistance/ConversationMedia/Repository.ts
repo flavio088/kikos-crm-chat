@@ -61,10 +61,6 @@ export const makeSql = Effect.gen(function* () {
 
 export const layerSql = Layer.effect(Repository)(makeSql);
 
-/**
- * Where a message's bytes live in the bucket. Prefixed for the same reason the
- * opportunity files are: the bucket is not promised to hold only these.
- */
 const keyOf = (messageId: CrmConversationMessageId.Id) => `crm-conversation-media/${messageId}`;
 
 const fromStore = (store: FileContent.IFileContentStore): IConversationMediaRepository => ({

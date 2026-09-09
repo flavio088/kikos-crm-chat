@@ -19,7 +19,6 @@ export interface IOpportunityFileRepository {
   readonly findById: (
     id: CrmOpportunityFileId.Id,
   ) => Effect.Effect<Option.Option<OpportunityFile.OpportunityFile>, OpportunityFileRepositoryError>;
-  /** An opportunity's files, oldest first — the order the history reads in. */
   readonly forOpportunity: (
     opportunityId: CrmOpportunityId.Id,
   ) => Effect.Effect<OpportunityFile.OpportunityFile[], OpportunityFileRepositoryError>;

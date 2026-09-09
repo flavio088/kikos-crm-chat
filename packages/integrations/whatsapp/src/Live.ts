@@ -3,17 +3,6 @@ import { HttpClient, HttpClientRequest } from "effect/unstable/http";
 import { WhatsAppError, WhatsAppGateway, type IWhatsAppGateway } from "./Gateway";
 import * as Model from "./Model";
 
-/**
- * The Cloud API, for real.
- *
- * Written against `HttpClient` rather than declared as an `HttpApi` the way
- * atos and pagbank are: those wrap whole products, this needs four calls, and
- * describing the graph api's surface to reach them would be more contract than
- * client.
- *
- * The token is `Redacted` so it does not print in a log line or a stack trace
- * — it is a bearer for the company's whole WhatsApp account.
- */
 const BASE_URL = "https://graph.facebook.com/v21.0";
 
 const failed = (context: string) =>
@@ -54,21 +43,13 @@ export const make = Effect.gen(function* () {
       return first.id;
     });
 
-  /**
-   * Multipart, because the api takes the bytes themselves here rather than a
-   * url — and a url for somebody's document is not a trade worth making.
-   */
   const upload: IWhatsAppGateway["upload"] = (data, mediaType) =>
     Effect.gen(function* () {
       const form = new FormData();
       form.set("messaging_product", "whatsapp");
       form.set("type", mediaType);
-            /**
-       * Copied into a plain buffer first: a `Uint8Array` over a `SharedArrayBuffer`
-       * is not a `BlobPart` as far as the dom types are concerned, and the slice
-       * is cheap next to the upload it feeds.
-       */
-      form.set("file", new Blob([data.slice().buffer], { type: mediaType }));
+      const bytesInPlainArrayBuffer = data.slice().buffer;
+      form.set("file", new Blob([bytesInPlainArrayBuffer], { type: mediaType }));
 
       const response = yield* client
         .execute(
@@ -87,11 +68,6 @@ export const make = Effect.gen(function* () {
       return uploaded.id;
     });
 
-  /**
-   * Two requests, and the api gives no way around it: the handle answers a
-   * url, and the url answers the bytes. The url is short-lived and bearer
-   * protected, which is why the token rides on the second call too.
-   */
   const download: IWhatsAppGateway["download"] = (id) =>
     Effect.gen(function* () {
       const handle = yield* client
@@ -113,7 +89,7 @@ export const make = Effect.gen(function* () {
       );
     });
 
-  const templates: IWhatsAppGateway["templates"] = Effect.gen(function* () {
+  const approvedTemplates: IWhatsAppGateway["approvedTemplates"] = Effect.gen(function* () {
     const response = yield* client
       .execute(
         authed(HttpClientRequest.get(`${BASE_URL}/${businessId}/message_templates?status=APPROVED`)),
@@ -133,7 +109,7 @@ export const make = Effect.gen(function* () {
     return listed.data;
   });
 
-  return WhatsAppGateway.of({ send, upload, download, templates });
+  return WhatsAppGateway.of({ send, upload, download, approvedTemplates });
 });
 
 export const layer = Layer.effect(WhatsAppGateway)(make);

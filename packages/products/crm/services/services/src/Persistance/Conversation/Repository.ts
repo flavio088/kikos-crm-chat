@@ -14,10 +14,6 @@ export interface IConversationRepository {
   readonly save: (
     conversation: Conversation.Conversation,
   ) => Effect.Effect<Conversation.Conversation, ConversationRepositoryError>;
-  /**
-   * The thread of one contact, and the lookup an incoming message makes: a
-   * number resolves to a person, and the person to this.
-   */
   readonly forContact: (
     contactId: CrmContactId.Id,
   ) => Effect.Effect<Option.Option<Conversation.Conversation>, ConversationRepositoryError>;

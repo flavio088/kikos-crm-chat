@@ -58,11 +58,6 @@ const renderEvent = (event: Event.Event): Rendered => {
     }
     case "noted":
       return { dot: "bg-neutral-500", title: "Nota registrada", detail: undefined };
-    /**
-     * The person had already come to us and came back. It only became
-     * recordable once contacts existed — before them, two conversions by one
-     * human were two rows with no way of knowing they described one person.
-     */
     case "reconverted": {
       const source = payloadText(event.payload, "source");
       return {
@@ -133,11 +128,6 @@ const formatFileSize = (sizeBytes: number) => {
   return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`;
 };
 
-/**
- * The bytes, fetched only when an image is actually drawn — the timeline
- * itself carries metadata alone, which is why the content lives behind its
- * own endpoint.
- */
 const ImagePreview = ({
   opportunityId,
   file,
@@ -164,13 +154,6 @@ const ImagePreview = ({
   );
 };
 
-/**
- * One attachment on the history: the image above its own caption, or a bare
- * caption for a pdf, in one bordered piece rather than three stacked ones.
- *
- * The filename is rendered as text and never as markup — it is the one field
- * on this row the uploader chose.
- */
 const FileRow = ({
   opportunityId,
   file,
@@ -290,13 +273,6 @@ const entryKey = (entry: OpportunityTimelineEntry) => {
   }
 };
 
-/**
- * Text and attachments in one place, the way the ticket composer does it.
- *
- * The two paths stay separate on purpose: a note is a body the server refuses
- * empty, and a file is its own row with no body at all. Sending one never
- * carries the other.
- */
 const NoteComposer = ({ opportunityId }: { opportunityId: CrmOpportunityId.Id }) => {
   const [draft, setDraft] = useOpportunityNoteDraft(opportunityId);
   const { add, pending } = useAddOpportunityNote();

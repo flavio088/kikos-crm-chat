@@ -43,7 +43,7 @@ export const CrmConversationTemplateHttpHandlers = HttpApiBuilder.group(
   Effect.fn("CrmConversationTemplateHttpHandlers")(function* (handlers) {
     const conversations = yield* CrmConversationService;
 
-    return handlers.handle("list", () => conversations.templates.pipe(mapScopedResponse));
+    return handlers.handle("list", () => conversations.approvedTemplates.pipe(mapScopedResponse));
   }),
 );
 
