@@ -1,0 +1,205 @@
+diff --git a/packages/products/crm/services/services/test/Opportunity.test.ts b/packages/products/crm/services/services/test/Opportunity.test.ts
+index 1e3c006..f246071 100755
+--- a/packages/products/crm/services/services/test/Opportunity.test.ts
++++ b/packages/products/crm/services/services/test/Opportunity.test.ts
+@@ -9,9 +9,11 @@ import {
+   UserId,
+ } from "@kikos/effect-identity";
+ import { Database, Tables } from "@kikos/persistance";
++import { File as PrimitiveFile } from "@kikos/primitives";
+ import { DateTime, Effect, Option, Schema } from "effect";
+ import {
+   ContactPersistence,
++  CrmConflictError,
+   CrmForbiddenError,
+   CrmNotFoundError,
+   CrmOpportunityService,
+@@ -19,6 +21,7 @@ import {
+   DistributionPersistence,
+   EventPersistence,
+   openOf,
++  OpportunityFileContentPersistence,
+   OpportunityPersistence,
+   MembershipPersistence,
+   NotePersistence,
+@@ -26,7 +29,7 @@ import {
+   PlacementPersistence,
+   PoolPersistence,
+ } from "../src";
+-import type { OpportunityCreation, OpportunitySummary } from "../src";
++import type { OpportunityCreation, OpportunityDetail, OpportunitySummary } from "../src";
+ import { contactIdOf, insertContact, insertUser, ServicesTest, userIdOf } from "./internal";
+ 
+ const destinationAt = Effect.fn("destinationAt")(function* (
+@@ -774,6 +777,171 @@ describe("crm opportunity administration", () => {
+   );
+ });
+ 
++/**
++ * The eight magic bytes a png opens with. `hasValidContent` reads them, so a
++ * test that wants an attachment to be accepted has to carry them — an array of
++ * zeroes declaring `image/png` is exactly what the mismatch branch refuses.
++ */
++const PNG_BYTES = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x01]);
++
++const pngNamed = (filename: string) => ({
++  filename,
++  content: { mediaType: "image/png", data: PNG_BYTES } as const satisfies PrimitiveFile.File,
++});
++
++const filesIn = (detail: OpportunityDetail) =>
++  detail.timeline.flatMap((entry) => (entry.kind === "file" ? [entry.file] : []));
++
++describe("crm opportunity files", () => {
++  it.effect("an attachment lands in the timeline with its bytes beside it", () =>
++    Effect.gen(function* () {
++      const service = yield* CrmOpportunityService;
++      const contents = yield* OpportunityFileContentPersistence.Repository;
++
++      const actor = yield* soloActor("KK01");
++      const opportunity = yield* opportunityAt({ name: "Construtora Ipê", email: "ipe@kikos.test" });
++
++      const detail = yield* service.attachFile(
++        actor,
++        opportunity.id,
++        pngNamed("planta-baixa.png"),
++      );
++
++      const [file, ...rest] = filesIn(detail);
++      assert.deepStrictEqual(rest, []);
++      assert.strictEqual(file?.filename, "planta-baixa.png");
++      assert.strictEqual(file?.opportunityId, opportunity.id);
++      // Both read off the content that arrived rather than taken from the
++      // caller — the whole reason `attachFile` takes a decoded file and not a
++      // media type and a size.
++      assert.strictEqual(file?.mediaType, "image/png");
++      assert.strictEqual(file?.sizeBytes, PNG_BYTES.byteLength);
++      assert.strictEqual(file?.authorId, actor.principal.id);
++
++      const stored = yield* contents.findByFileId(file!.id);
++      assert.deepStrictEqual(Option.getOrUndefined(stored), PNG_BYTES);
++    }).pipe(Effect.provide(ServicesTest)),
++  );
++
++  /**
++   * The declared type is the one thing about an upload that the schema cannot
++   * settle on its own: `image/png` and `application/pdf` are both in the
++   * accepted set, so a payload lying about which one it is decodes cleanly and
++   * only the magic bytes catch it. The refusal is before either write, so the
++   * assertion is not just the error — it is that the history is untouched.
++   */
++  it.effect("content that does not match the declared media type is refused", () =>
++    Effect.gen(function* () {
++      const service = yield* CrmOpportunityService;
++
++      const actor = yield* soloActor("KK02");
++      const opportunity = yield* opportunityAt({ name: "Construtora Cedro", email: "cedro@kikos.test" });
++
++      const refused = yield* service
++        .attachFile(actor, opportunity.id, {
++          filename: "contrato.pdf",
++          content: { mediaType: "application/pdf", data: PNG_BYTES },
++        })
++        .pipe(Effect.flip);
++
++      assert.instanceOf(refused, CrmConflictError);
++      assert.strictEqual((refused as CrmConflictError).reason, "content_mismatch");
++      assert.deepStrictEqual(filesIn(yield* service.detail(actor, opportunity.id)), []);
++    }).pipe(Effect.provide(ServicesTest)),
++  );
++
++  /**
++   * Read through the seller the opportunity is placed with rather than an
++   * admin. `fileContent` asks the ability under `read`, and an admin passes
++   * that verb on everything — so an admin here would still go green with the
++   * check taken out. The seller is the one whose permission is actually being
++   * asserted, and the one who downloads attachments in production.
++   */
++  it.effect("the bytes come back to the seller the opportunity is placed with", () =>
++    Effect.gen(function* () {
++      const pools = yield* PoolPersistence.Repository;
++      const service = yield* CrmOpportunityService;
++
++      const pool = yield* pools.save(yield* Pool.make({ slug: "stores", name: "Rede de lojas" }));
++      const salvador = yield* destinationAt(pool.id, "salvador", 0);
++      const sellerId = yield* insertUser(userIdOf("KK03"), "seller");
++      yield* memberAt(salvador.id, sellerId, "seller");
++
++      const opportunity = yield* opportunityAt({
++        name: "Construtora Jatobá",
++        email: "jatoba@kikos.test",
++      });
++      yield* assignTo(opportunity.id, salvador.id, sellerId);
++
++      const actor = actorOf(
++        "employee",
++        sellerId,
++        new Scope.CrmScope({ userId: sellerId, managed: [], selling: [salvador.id] }),
++      );
++
++      const detail = yield* service.attachFile(actor, opportunity.id, pngNamed("medidas.png"));
++      const attached = filesIn(detail)[0]!;
++
++      const got = yield* service.fileContent(actor, opportunity.id, attached.id);
++
++      assert.strictEqual(got.file.id, attached.id);
++      assert.strictEqual(got.file.filename, "medidas.png");
++      assert.deepStrictEqual(got.data, PNG_BYTES);
++    }).pipe(Effect.provide(ServicesTest)),
++  );
++
++  /**
++   * The IDOR guard. `fileContent` authorizes the *opportunity* in the path and
++   * then loads the file by id, so without the ownership comparison a caller
++   * cleared for one opportunity could name any file id in the system and get
++   * its bytes — the id is the only thing standing between them and it.
++   *
++   * The actor is an admin on purpose, and it is the whole point of the test.
++   * Admin passes `read` on both opportunities, so the refusal cannot be the
++   * ability firing: it can only be `file.opportunityId` disagreeing with the
++   * opportunity that was authorized. A scoped seller here would prove nothing,
++   * because the scope alone would have stopped them at the second opportunity.
++   *
++   * Both branches that can refuse here raise `CrmNotFoundError` with reason
++   * `opportunity_not_found` — the ownership comparison and `requireOpportunity`
++   * behind it — so the error alone does not say which one fired. Two things
++   * pin it down. The `detail` call proves the second opportunity exists and is
++   * readable, and the message carries the *file* id rather than the
++   * opportunity id, which only the ownership branch writes.
++   *
++   * The last two assertions are the control. The same file id fetched against
++   * the opportunity it belongs to succeeds, so the refusal above is about the
++   * pairing and not about an id that was never good for anything.
++   */
++  it.effect("a file id from another opportunity is refused, not served", () =>
++    Effect.gen(function* () {
++      const service = yield* CrmOpportunityService;
++
++      const actor = yield* soloActor("KK04");
++      const mine = yield* opportunityAt({ name: "Construtora Aroeira", email: "aroeira@kikos.test" });
++      const theirs = yield* opportunityAt({ name: "Construtora Peroba", email: "peroba@kikos.test" });
++
++      const detail = yield* service.attachFile(actor, mine.id, pngNamed("orcamento.png"));
++      const attached = filesIn(detail)[0]!;
++
++      // Not staging: the assertion that the refusal below is the ownership
++      // check and not this actor being unable to reach `theirs` at all.
++      assert.strictEqual((yield* service.detail(actor, theirs.id)).opportunity.id, theirs.id);
++
++      const refused = yield* service
++        .fileContent(actor, theirs.id, attached.id)
++        .pipe(Effect.flip);
++
++      assert.instanceOf(refused, CrmNotFoundError);
++      assert.strictEqual((refused as CrmNotFoundError).reason, "opportunity_not_found");
++      assert.include(refused.message, attached.id);
++
++      const served = yield* service.fileContent(actor, mine.id, attached.id);
++      assert.deepStrictEqual(served.data, PNG_BYTES);
++    }).pipe(Effect.provide(ServicesTest)),
++  );
++});
++
+ /**
+  * The row is written straight to the table instead of through the repository.
+  * The opportunity domain is mid-split and the class no longer carries `name`,

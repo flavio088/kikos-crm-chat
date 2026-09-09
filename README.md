@@ -47,7 +47,13 @@ services/api/src/Api/Conversation/ handlers
 ui/backoffice/src/ atoms, hooks e componentes
 
 migrations/ as duas migrations
-alterados/ arquivos existentes que foram tocados
+diffs/ o que mudou em arquivos que já existiam
+
+Os arquivos sob `diffs/` são as alterações em código que já existia — a
+tabela nova no schema, o verbo novo na política de acesso, o terceiro tipo
+de entrada no timeline. Estão como diff e não como arquivo inteiro porque é
+o que mudou que interessa, e porque um arquivo de mil linhas com trinta
+delas novas esconde exatamente o que deveria mostrar.
 
 
 ---

@@ -1,0 +1,129 @@
+diff --git a/packages/products/crm/contracts/src/Api/Opportunity/Opportunity.ts b/packages/products/crm/contracts/src/Api/Opportunity/Opportunity.ts
+index 91dd669..cda8238 100755
+--- a/packages/products/crm/contracts/src/Api/Opportunity/Opportunity.ts
++++ b/packages/products/crm/contracts/src/Api/Opportunity/Opportunity.ts
+@@ -1,9 +1,10 @@
+ import { Authorization } from "@kikos/core-contracts";
+-import { Contact, Distribution, Event, Opportunity, Note, Quotation } from "@kikos/crm-core";
+-import { CrmContactId, CrmDestinationId, UserId } from "@kikos/effect-identity";
+-import { ApplicationError, Contracts, ForbiddenError } from "@kikos/primitives";
++import { Contact, Distribution, Event, Opportunity, OpportunityFile, Note, Quotation } from "@kikos/crm-core";
++import { CrmContactId, CrmDestinationId, CrmOpportunityFileId, UserId } from "@kikos/effect-identity";
++import { ApplicationError, Contracts, File, ForbiddenError } from "@kikos/primitives";
+ import { Schema } from "effect";
+-import { HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi";
++import { Multipart } from "effect/unstable/http";
++import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "effect/unstable/httpapi";
+ import { CrmConflictError, CrmNotFoundError } from "../Errors";
+ import { CrmScoped } from "../Middleware";
+ import { MonthWindow } from "../Quotation/Quotation";
+@@ -36,6 +37,17 @@ export const OpportunityTimelineEntry = Schema.Union([
+     at: Schema.DateTimeUtc,
+     event: Event.Event,
+   }),
++  /**
++   * An attachment. It carries the metadata only — filename, media type and
++   * size — because that is what the history draws; the bytes are fetched on
++   * demand through the content endpoint, which is the whole reason they live
++   * in a table of their own.
++   */
++  Schema.Struct({
++    kind: Schema.tag("file"),
++    at: Schema.DateTimeUtc,
++    file: OpportunityFile.OpportunityFile,
++  }),
+ ]).pipe(Schema.toTaggedUnion("kind"));
+ export type OpportunityTimelineEntry = Schema.Schema.Type<typeof OpportunityTimelineEntry>;
+ 
+@@ -331,6 +343,55 @@ export const PlaceOpportunity = {
+   ]),
+ };
+ 
++/**
++ * The upload payload, shaped like the ticket one: a single part, capped at the
++ * shared `File.MAX_SIZE_BYTES` on both the part and the request, so an
++ * oversized body is refused at the boundary rather than read into memory first.
++ *
++ * The media type the client declares is narrowed by the schema, and then the
++ * bytes themselves are checked against it in the service — a declaration is
++ * not evidence.
++ */
++export const UploadOpportunityFileInput = Schema.Struct({
++  file: Multipart.SingleFileSchema,
++}).pipe(
++  HttpApiSchema.asMultipart({
++    maxParts: 1,
++    maxFileSize: File.MAX_SIZE_BYTES,
++    maxTotalSize: File.MAX_SIZE_BYTES,
++  }),
++);
++
++/**
++ * Both the opportunity and the file are named. The opportunity is not
++ * redundant: it is what the handler checks the file against, so a file id
++ * belonging to somebody else's opportunity is answered as not found rather
++ * than served.
++ */
++const OpportunityFileScopedParams = Schema.Struct({
++  id: Opportunity.Id,
++  fileId: CrmOpportunityFileId.Id,
++});
++
++export const AttachOpportunityFile = {
++  input: { id: Opportunity.Id },
++  payload: UploadOpportunityFileInput,
++  ...Contracts.response(OpportunityDetail, [ApplicationError, ForbiddenError, CrmNotFoundError, CrmConflictError]),
++};
++
++export const OpportunityFileContent = {
++  input: OpportunityFileScopedParams,
++  success: Schema.Uint8Array.pipe(
++    HttpApiSchema.asUint8Array({ contentType: "application/octet-stream" }),
++  ),
++  error: [ApplicationError, ForbiddenError, CrmNotFoundError] as const,
++};
++
++export const DetachOpportunityFile = {
++  input: OpportunityFileScopedParams,
++  ...Contracts.response(OpportunityDetail, [ApplicationError, ForbiddenError, CrmNotFoundError]),
++};
++
+ export const AddOpportunityNote = {
+   input: { id: Opportunity.Id },
+   payload: Schema.Struct({ body: Schema.NonEmptyString }),
+@@ -344,6 +405,13 @@ export const OpportunityApiGroup = HttpApiGroup.make("crmOpportunities")
+       success: GetOpportunities.success,
+       error: GetOpportunities.error,
+     }),
++  )
++    .add(
++    HttpApiEndpoint.delete("detachFile", "/:id/files/:fileId", {
++      params: DetachOpportunityFile.input,
++      success: DetachOpportunityFile.success,
++      error: DetachOpportunityFile.error,
++    }),
+   )
+   /**
+    * Registered ahead of `/:id`, or the literal path would be read as an
+@@ -415,6 +483,21 @@ export const OpportunityApiGroup = HttpApiGroup.make("crmOpportunities")
+       error: AddOpportunityNote.error,
+     }),
+   )
++  .add(
++    HttpApiEndpoint.post("attachFile", "/:id/files", {
++      params: AttachOpportunityFile.input,
++      payload: AttachOpportunityFile.payload,
++      success: AttachOpportunityFile.success,
++      error: AttachOpportunityFile.error,
++    }),
++  )
++  .add(
++    HttpApiEndpoint.get("fileContent", "/:id/files/:fileId/content", {
++      params: OpportunityFileContent.input,
++      success: OpportunityFileContent.success,
++      error: OpportunityFileContent.error,
++    }),
++  )
+   .add(
+     HttpApiEndpoint.post("distribute", "/:id/distribute", {
+       params: DistributeOpportunity.input,

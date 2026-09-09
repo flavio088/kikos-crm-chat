@@ -1,0 +1,272 @@
+diff --git a/packages/products/crm/services/services/src/Services/Opportunity/index.ts b/packages/products/crm/services/services/src/Services/Opportunity/index.ts
+index 991e006..2f7b5d3 100755
+--- a/packages/products/crm/services/services/src/Services/Opportunity/index.ts
++++ b/packages/products/crm/services/services/src/Services/Opportunity/index.ts
+@@ -1,12 +1,15 @@
+ import { Ability } from "@kikos/ability";
+-import { Contact, Distribution, Event, Intake, Opportunity, Note, Policy, Quotation } from "@kikos/crm-core";
+-import { CrmContactId, CrmDestinationId, CrmOpportunityId, UserId } from "@kikos/effect-identity";
++import { File as PrimitiveFile } from "@kikos/primitives";
++import { Contact, Distribution, Event, Intake, Opportunity, OpportunityFile, Note, Policy, Quotation } from "@kikos/crm-core";
++import { CrmContactId, CrmDestinationId, CrmOpportunityId,CrmOpportunityFileId, UserId } from "@kikos/effect-identity";
+ import { Context, DateTime, Effect, Layer, Option, Schema } from "effect";
+ import { ContactPersistence } from "../../Persistance/Contact";
+ import { QuotationPersistence } from "../../Persistance/Quotation";
+ import { DistributionPersistence } from "../../Persistance/Distribution";
+ import { EventPersistence } from "../../Persistance/Event";
+ import { OpportunityPersistence } from "../../Persistance/Opportunity";
++import { OpportunityFilePersistence } from "../../Persistance/OpportunityFile";
++import { OpportunityFileContentPersistence } from "../../Persistance/OpportunityFileContent";
+ import { NotePersistence } from "../../Persistance/Note";
+ import { PlacementPersistence } from "../../Persistance/Placement";
+ import { standingsOf } from "../Quotation";
+@@ -53,7 +56,12 @@ export type OpportunitySummary = {
+ 
+ export type OpportunityTimelineEntry =
+   | { readonly kind: "note"; readonly at: DateTime.Utc; readonly note: Note.OnOpportunity }
+-  | { readonly kind: "event"; readonly at: DateTime.Utc; readonly event: Event.Event };
++  | { readonly kind: "event"; readonly at: DateTime.Utc; readonly event: Event.Event }
++  | {
++      readonly kind: "file";
++      readonly at: DateTime.Utc;
++      readonly file: OpportunityFile.OpportunityFile;
++    };
+ 
+ export type OpportunityDetail = OpportunitySummary & {
+   readonly timeline: ReadonlyArray<OpportunityTimelineEntry>;
+@@ -191,6 +199,8 @@ export type OpportunityCreation =
+ 
+ export const OPPORTUNITY_COLUMN_LIMIT = 20;
+ 
++export const MAX_OPPORTUNITY_FILES = 20;
++
+ export const DEFAULT_OPPORTUNITY_COLUMN_PAGE_LIMIT = 20;
+ 
+ export const MAX_OPPORTUNITY_COLUMN_PAGE_LIMIT = 50;
+@@ -266,6 +276,43 @@ export interface ICrmOpportunityService {
+     id: CrmOpportunityId.Id,
+     body: string,
+   ) => Effect.Effect<OpportunityDetail, CrmOpportunityFailure>;
++  /**
++   * Attaches a file to an opportunity's history.
++   *
++   * `content` is the decoded `PrimitiveFile.File`, so the media type has
++   * already been narrowed to the accepted set by the time it arrives — and
++   * `authorId` is read off the actor rather than taken from the caller, the
++   * same way `addNote` settles who wrote a note.
++   */
++  readonly attachFile: (
++    actor: CrmActor,
++    id: CrmOpportunityId.Id,
++    input: { readonly filename: string; readonly content: PrimitiveFile.File },
++  ) => Effect.Effect<OpportunityDetail, CrmOpportunityFailure>;
++
++  
++
++    readonly fileContent: (
++    actor: CrmActor,
++    id: CrmOpportunityId.Id,
++    fileId: CrmOpportunityFileId.Id,
++  ) => Effect.Effect <
++    { readonly file: OpportunityFile.OpportunityFile; readonly data: Uint8Array },
++    CrmOpportunityFailure
++  >;
++
++    /*
++   * Takes an attachment back off the history.
++   * Same verb as attaching: whoever may write to a history may correct what
++   * they wrote there. The row is kept as the record that a file was attached
++   * and taken back; the bytes are dropped for real, because they are what the
++   * cap counts.
++   */
++  readonly detachFile: (
++    actor: CrmActor,
++    id: CrmOpportunityId.Id,
++    fileId: CrmOpportunityFileId.Id,
++  ) => Effect.Effect<OpportunityDetail, CrmOpportunityFailure>;
+ }
+ 
+ export class CrmOpportunityService extends Context.Service<CrmOpportunityService, ICrmOpportunityService>()(
+@@ -401,12 +448,21 @@ const echoesNote = (notes: ReadonlyArray<Note.OnOpportunity>, event: Event.Event
+ const timelineOf = (
+   notes: ReadonlyArray<Note.OnOpportunity>,
+   events: ReadonlyArray<Event.Event>,
++  files: ReadonlyArray<OpportunityFile.OpportunityFile>,
+ ): ReadonlyArray<OpportunityTimelineEntry> =>
+   [
+     ...notes.map((note): OpportunityTimelineEntry => ({ kind: "note", at: note.createdAt, note })),
+     ...events
+       .filter((event) => !echoesNote(notes, event))
+       .map((event): OpportunityTimelineEntry => ({ kind: "event", at: event.createdAt, event })),
++    /**
++     * Attachments carry no echoing event to filter out: a file is not recorded
++     * in `crm_events` at all. `Event.Kind` documents why — every literal there
++     * costs a branch in the timeline's exhaustive switch, and a state that
++     * already lives in a table of its own is not written to the log a second
++     * time. The row's own `createdAt` is what places it here.
++     */
++    ...files.map((file): OpportunityTimelineEntry => ({ kind: "file", at: file.createdAt, file })),
+   ].sort((a, b) => DateTime.toEpochMillis(a.at) - DateTime.toEpochMillis(b.at));
+ 
+ const duplicateNoteBody = (input: CreateOpportunityInput): string =>
+@@ -439,6 +495,8 @@ export const make = Effect.gen(function* () {
+   const placements = yield* PlacementPersistence.Repository;
+   const notes = yield* NotePersistence.Repository;
+   const events = yield* EventPersistence.Repository;
++  const files = yield* OpportunityFilePersistence.Repository;
++  const contents = yield* OpportunityFileContentPersistence.Repository;
+   const quotations = yield* QuotationPersistence.Repository;
+   const attempts = yield* DistributionPersistence.Repository;
+   const contacts = yield* ContactPersistence.Repository;
+@@ -515,6 +573,8 @@ export const make = Effect.gen(function* () {
+     const history = yield* placements.forOpportunity(opportunity.id).pipe(failed);
+     const written = yield* notes.forOpportunity(opportunity.id).pipe(failed);
+     const logged = yield* events.forOpportunity(opportunity.id).pipe(failed);
++    /** Metadata only — the bytes live in their own table and are read on download. */
++    const attached = yield* files.forOpportunity(opportunity.id).pipe(failed);
+     /**
+      * The rows themselves, not the reduced shape `attemptsOf` answers in: the
+      * detail carries both the status they fold into and the trace they hold,
+@@ -528,7 +588,7 @@ export const make = Effect.gen(function* () {
+       status: statusOf(opportunity.stage, history, tried.map(Distribution.Attempt.toStatusAttempt), held),
+       stage: Opportunity.Stage.derive({ target: opportunity.stage, quotations: held }),
+       placement: Option.getOrUndefined(Opportunity.Placement.latest(history)),
+-      timeline: timelineOf(written, logged),
++      timeline: timelineOf(written, logged, attached),
+       distributions: tried,
+     };
+   });
+@@ -1049,6 +1109,123 @@ export const make = Effect.gen(function* () {
+     return yield* detailOf(contacted);
+   });
+ 
++  /**
++   * The write behind the attachment button, and the mirror of `addNote`.
++   *
++   * Three things are settled here rather than trusted from the request. The
++   * ability is asked before anything is written, under the same `note` verb —
++   * attaching to an opportunity is writing to its history, and a caller who
++   * may not write a note may not write a file either. The author is read off
++   * the actor. And the bytes are checked against the media type they claim:
++   * `hasValidContent` reads the file's magic bytes, so a payload declaring
++   * `image/png` and carrying something else is refused rather than stored.
++   *
++   * The metadata row is committed before the bytes, because the content table
++   * points at it — the same order `ticket_entry_file_contents` documents.
++   */
++  const attachFile: ICrmOpportunityService["attachFile"] = Effect.fn("attachFile")(function* (
++    actor,
++    id,
++    input,
++  ) {
++    const contacted = yield* requireOpportunity(id);
++    yield* requireCan(actor.ability, "note", contacted.placed);
++
++    if (!PrimitiveFile.hasValidContent(input.content)) {
++      return yield* Effect.fail(
++        new CrmConflictError({
++          reason: "content_mismatch",
++          message: "O conteúdo do arquivo não corresponde ao tipo informado",
++        }),
++      );
++    }
++
++    const held = yield* files.forOpportunity(contacted.placed.opportunity.id).pipe(failed);
++    if (held.length >= MAX_OPPORTUNITY_FILES) {
++      return yield* Effect.fail(
++        new CrmConflictError({
++          reason: "attachment_limit_reached",
++          message: `Esta oportunidade já tem ${MAX_OPPORTUNITY_FILES} arquivos. Remova algum antes de anexar outro.`,
++        }),
++      );
++    }
++
++    const opportunityId = contacted.placed.opportunity.id;
++    const file = yield* files
++      .save(
++        yield* OpportunityFile.make({
++          opportunityId,
++          filename: input.filename,
++          content: input.content,
++          authorId: actor.principal.id,
++        }).pipe(failed),
++      )
++      .pipe(failed);
++    yield* contents.save(file.id, input.content.data).pipe(failed);
++
++    return yield* detailOf(contacted);
++  });
++
++    const fileContent: ICrmOpportunityService["fileContent"] = Effect.fn("fileContent")(function* (
++    actor,
++    id,
++    fileId,
++  ) {
++    const contacted = yield* requireOpportunity(id);
++    yield* requireCan(actor.ability, "read", contacted.placed);
++
++    const found = yield* files.findById(fileId).pipe(failed);
++    const file = Option.getOrUndefined(found);
++    if (file === undefined || file.opportunityId !== contacted.placed.opportunity.id) {
++      return yield* Effect.fail(
++        new CrmNotFoundError({
++          reason: "opportunity_not_found",
++          message: `No crm opportunity file ${fileId}`,
++        }),
++      );
++    }
++
++    const foundContent = yield* contents.findByFileId(file.id).pipe(failed);
++    const data = Option.getOrUndefined(foundContent);
++    if (data === undefined) {
++      return yield* Effect.fail(
++        new CrmNotFoundError({
++          reason: "opportunity_not_found",
++          message: `No content stored for crm opportunity file ${file.id}`,
++        }),
++      );
++    }
++
++    return { file, data };
++  });
++
++  const detachFile: ICrmOpportunityService["detachFile"] = Effect.fn("detachFile")(function* (
++    actor,
++    id,
++    fileId,
++  ) {
++    const contacted = yield* requireOpportunity(id);
++    yield* requireCan(actor.ability, "note", contacted.placed);
++
++    const found = yield* files.findById(fileId).pipe(failed);
++    const file = Option.getOrUndefined(found);
++    if (file === undefined || file.opportunityId !== contacted.placed.opportunity.id) {
++      return yield* Effect.fail(
++        new CrmNotFoundError({
++          reason: "opportunity_not_found",
++          message: `No crm opportunity file ${fileId}`,
++        }),
++      );
++    }
++
++    // Bytes first: a metadata row without them shows a broken download, while
++    // bytes without a row are unreachable and nothing would ever collect them.
++    yield* contents.remove(file.id).pipe(failed);
++    yield* files.remove(file).pipe(failed);
++
++    return yield* detailOf(contacted);
++  });
++
+   return CrmOpportunityService.of({
+     list,
+     sellerTally,
+@@ -1058,6 +1235,9 @@ export const make = Effect.gen(function* () {
+     update,
+     remove,
+     addNote,
++    attachFile,
++    fileContent,
++    detachFile,
+     board,
+     column,
+     moveStage,
