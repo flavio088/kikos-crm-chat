@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import { PgClient } from "@effect/sql-pg";
 import { PgliteClient } from "@effect/sql-pglite";
 import * as PgliteDrizzle from "drizzle-orm/effect-pglite";
@@ -5,7 +6,9 @@ import * as PgDrizzle from "drizzle-orm/effect-postgres";
 import { migrate } from "drizzle-orm/effect-postgres/migrator";
 import { Config, Context, Effect, Layer, Option, Redacted } from "effect";
 
-const MIGRATIONS_FOLDER = new URL("../../drizzle", import.meta.url).pathname;
+const MIGRATIONS_FOLDER = fileURLToPath(
+  new URL("../../drizzle", import.meta.url),
+);
 
 const makeDrizzle = PgDrizzle.makeWithDefaults();
 
